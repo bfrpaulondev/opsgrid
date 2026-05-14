@@ -38,9 +38,28 @@ export async function GET(request: NextRequest) {
         ])
 
         return {
-          ...project,
           id: project._id.toString(),
-          macros: macros.map((m) => ({ ...m, id: m._id.toString() })),
+          name: project.name,
+          client: project.client,
+          type: project.type,
+          priority: project.priority,
+          status: project.status,
+          startDate: project.startDate,
+          plannedDelivery: project.plannedDelivery,
+          actualDelivery: project.actualDelivery,
+          riskNotes: project.riskNotes,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+          macros: macros.map((m) => ({
+            id: m._id.toString(),
+            projectId: m.projectId.toString(),
+            name: m.name,
+            status: m.status,
+            progressPct: m.progressPct,
+            plannedDelivery: m.plannedDelivery,
+            createdAt: m.createdAt,
+            updatedAt: m.updatedAt,
+          })),
           _count: {
             entries: entryCount,
             allocations: allocationCount,

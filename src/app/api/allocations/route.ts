@@ -37,20 +37,21 @@ export async function GET(request: NextRequest) {
     const projectMap = new Map(projects.map((p) => [p._id.toString(), p]))
     const collaboratorMap = new Map(collaborators.map((c) => [c._id.toString(), c]))
 
-    const result = allocations.map((a) => ({
-      ...a,
-      id: a._id.toString(),
-      projectId: a.projectId.toString(),
-      collaboratorId: a.collaboratorId.toString(),
-      project: (() => {
-        const p = projectMap.get(a.projectId.toString())
-        return p ? { id: p._id.toString(), name: p.name, type: p.type, status: p.status } : null
-      })(),
-      collaborator: (() => {
-        const c = collaboratorMap.get(a.collaboratorId.toString())
-        return c ? { id: c._id.toString(), name: c.name, monthlyCapacityH: c.monthlyCapacityH } : null
-      })(),
-    }))
+    const result = allocations.map((a) => {
+      const p = projectMap.get(a.projectId.toString())
+      const c = collaboratorMap.get(a.collaboratorId.toString())
+      return {
+        id: a._id.toString(),
+        projectId: a.projectId.toString(),
+        collaboratorId: a.collaboratorId.toString(),
+        month: a.month,
+        plannedHours: a.plannedHours,
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt,
+        project: p ? { id: p._id.toString(), name: p.name, type: p.type, status: p.status } : null,
+        collaborator: c ? { id: c._id.toString(), name: c.name, monthlyCapacityH: c.monthlyCapacityH } : null,
+      }
+    })
 
     return NextResponse.json(result)
   } catch (error) {

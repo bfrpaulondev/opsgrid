@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     const collabIds = [...new Set(entries.map((e) => e.collaboratorId.toString()))]
 
     const [projects, macros, collaborators] = await Promise.all([
-      Project.find({ _id: { $in: projectIds } }).select('name type').lean(),
+      Project.find({ _id: { $in: projectIds } }).select('name type status').lean(),
       MacroActivity.find({ _id: { $in: macroIds } }).select('name').lean(),
       Collaborator.find({ _id: { $in: collabIds } }).select('name').lean(),
     ])
@@ -49,27 +49,28 @@ export async function GET(request: NextRequest) {
     const macroMap = new Map(macros.map((m) => [m._id.toString(), m]))
     const collaboratorMap = new Map(collaborators.map((c) => [c._id.toString(), c]))
 
-    const result = entries.map((entry) => ({
-      ...entry,
-      id: entry._id.toString(),
-      projectId: entry.projectId.toString(),
-      macroId: entry.macroId ? entry.macroId.toString() : null,
-      collaboratorId: entry.collaboratorId.toString(),
-      project: (() => {
-        const p = projectMap.get(entry.projectId.toString())
-        return p ? { id: p._id.toString(), name: p.name, type: p.type } : null
-      })(),
-      macro: entry.macroId
-        ? (() => {
-            const m = macroMap.get(entry.macroId.toString())
-            return m ? { id: m._id.toString(), name: m.name } : null
-          })()
-        : null,
-      collaborator: (() => {
-        const c = collaboratorMap.get(entry.collaboratorId.toString())
-        return c ? { id: c._id.toString(), name: c.name } : null
-      })(),
-    }))
+    const result = entries.map((entry) => {
+      const p = projectMap.get(entry.projectId.toString())
+      const m = entry.macroId ? macroMap.get(entry.macroId.toString()) : null
+      const c = collaboratorMap.get(entry.collaboratorId.toString())
+      return {
+        id: entry._id.toString(),
+        date: entry.date,
+        hours: entry.hours,
+        isSupport: entry.isSupport,
+        note: entry.note,
+        statusSnapshot: entry.statusSnapshot,
+        progressSnapshot: entry.progressSnapshot,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        projectId: entry.projectId.toString(),
+        macroId: entry.macroId ? entry.macroId.toString() : null,
+        collaboratorId: entry.collaboratorId.toString(),
+        project: p ? { id: p._id.toString(), name: p.name, type: p.type, status: p.status } : null,
+        macro: m ? { id: m._id.toString(), name: m.name } : null,
+        collaborator: c ? { id: c._id.toString(), name: c.name } : null,
+      }
+    })
 
     return NextResponse.json(result)
   } catch (error) {

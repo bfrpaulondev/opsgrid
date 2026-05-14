@@ -27,8 +27,14 @@ export async function GET(request: NextRequest) {
           .lean()
 
         return {
-          ...collab,
           id: collab._id.toString(),
+          name: collab.name,
+          jobTitle: collab.jobTitle,
+          monthlyCapacityH: collab.monthlyCapacityH,
+          supportPct: collab.supportPct,
+          active: collab.active,
+          createdAt: collab.createdAt,
+          updatedAt: collab.updatedAt,
           user: user
             ? {
                 id: user._id.toString(),
