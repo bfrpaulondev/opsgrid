@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import { TimeEntry } from '@/models/TimeEntry'
+import { Project } from '@/models/Project'
+import { MacroActivity } from '@/models/MacroActivity'
 import { Collaborator } from '@/models/Collaborator'
 import { requireAuth } from '@/lib/api-auth'
 import { timeEntryCreateSchema } from '@/lib/validations'
@@ -29,35 +31,44 @@ export async function GET(request: NextRequest) {
     if (collaboratorId) filter.collaboratorId = collaboratorId
     if (projectId) filter.projectId = projectId
 
-    const entries = await TimeEntry.find(filter)
-      .populate('project', 'id name type')
-      .populate('macro', 'id name')
-      .populate('collaborator', 'id name')
-      .sort({ date: -1 })
-      .lean()
+    const entries = await TimeEntry.find(filter).sort({ date: -1 }).lean()
+
+    // Collect unique IDs for batch lookup
+    const projectIds = [...new Set(entries.map((e) => e.projectId.toString()))]
+    const macroIds = [...new Set(entries.filter((e) => e.macroId).map((e) => e.macroId!.toString()))]
+    const collabIds = [...new Set(entries.map((e) => e.collaboratorId.toString()))]
+
+    const [projects, macros, collaborators] = await Promise.all([
+      Project.find({ _id: { $in: projectIds } }).select('name type').lean(),
+      MacroActivity.find({ _id: { $in: macroIds } }).select('name').lean(),
+      Collaborator.find({ _id: { $in: collabIds } }).select('name').lean(),
+    ])
+
+    // Build lookup maps
+    const projectMap = new Map(projects.map((p) => [p._id.toString(), p]))
+    const macroMap = new Map(macros.map((m) => [m._id.toString(), m]))
+    const collaboratorMap = new Map(collaborators.map((c) => [c._id.toString(), c]))
 
     const result = entries.map((entry) => ({
       ...entry,
       id: entry._id.toString(),
-      project: entry.project
-        ? {
-            id: (entry.project as any)._id?.toString() || (entry.project as any).id,
-            name: (entry.project as any).name,
-            type: (entry.project as any).type,
-          }
+      projectId: entry.projectId.toString(),
+      macroId: entry.macroId ? entry.macroId.toString() : null,
+      collaboratorId: entry.collaboratorId.toString(),
+      project: (() => {
+        const p = projectMap.get(entry.projectId.toString())
+        return p ? { id: p._id.toString(), name: p.name, type: p.type } : null
+      })(),
+      macro: entry.macroId
+        ? (() => {
+            const m = macroMap.get(entry.macroId.toString())
+            return m ? { id: m._id.toString(), name: m.name } : null
+          })()
         : null,
-      macro: entry.macro
-        ? {
-            id: (entry.macro as any)._id?.toString() || (entry.macro as any).id,
-            name: (entry.macro as any).name,
-          }
-        : null,
-      collaborator: entry.collaborator
-        ? {
-            id: (entry.collaborator as any)._id?.toString() || (entry.collaborator as any).id,
-            name: (entry.collaborator as any).name,
-          }
-        : null,
+      collaborator: (() => {
+        const c = collaboratorMap.get(entry.collaboratorId.toString())
+        return c ? { id: c._id.toString(), name: c.name } : null
+      })(),
     }))
 
     return NextResponse.json(result)

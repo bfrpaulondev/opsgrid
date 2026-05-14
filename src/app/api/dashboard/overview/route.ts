@@ -34,10 +34,7 @@ export async function GET(request: NextRequest) {
     // Time entries for the month
     const entries = await TimeEntry.find({
       date: { $gte: monthStart, $lte: monthEnd },
-    })
-      .populate('project', 'id name type')
-      .populate('collaborator', 'id name monthlyCapacityH')
-      .lean()
+    }).lean()
 
     const actualHoursMonth = entries.reduce((sum, e) => sum + e.hours, 0)
 
@@ -48,6 +45,18 @@ export async function GET(request: NextRequest) {
       0
     )
 
+    // Batch lookup related projects and collaborators
+    const projectIds = [...new Set(entries.map((e) => e.projectId.toString()))]
+    const collabIds = [...new Set(entries.map((e) => e.collaboratorId.toString()))]
+
+    const [projectsLookup, collaboratorsLookup] = await Promise.all([
+      Project.find({ _id: { $in: projectIds } }).select('name type').lean(),
+      Collaborator.find({ _id: { $in: collabIds } }).select('name monthlyCapacityH').lean(),
+    ])
+
+    const projectMap = new Map(projectsLookup.map((p) => [p._id.toString(), p]))
+    const collaboratorMap = new Map(collaboratorsLookup.map((c) => [c._id.toString(), c]))
+
     // Overloaded collaborators
     const collaboratorHours = new Map<
       string,
@@ -55,7 +64,7 @@ export async function GET(request: NextRequest) {
     >()
 
     for (const entry of entries) {
-      const collab = entry.collaborator as any
+      const collab = collaboratorMap.get(entry.collaboratorId.toString())
       const existing = collaboratorHours.get(entry.collaboratorId.toString()) || {
         total: 0,
         capacity: collab?.monthlyCapacityH || 160,
@@ -83,7 +92,7 @@ export async function GET(request: NextRequest) {
     // Top projects by hours
     const projectHours = new Map<string, { name: string; hours: number }>()
     for (const entry of entries) {
-      const proj = entry.project as any
+      const proj = projectMap.get(entry.projectId.toString())
       const existing = projectHours.get(entry.projectId.toString()) || {
         name: proj?.name || 'Unknown',
         hours: 0,
@@ -111,7 +120,7 @@ export async function GET(request: NextRequest) {
     // Effort by type
     const effortByType: Record<string, number> = {}
     for (const entry of entries) {
-      const proj = entry.project as any
+      const proj = projectMap.get(entry.projectId.toString())
       const type = proj?.type || 'UNKNOWN'
       effortByType[type] = (effortByType[type] || 0) + entry.hours
     }

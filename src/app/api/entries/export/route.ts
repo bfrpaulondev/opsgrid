@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import { TimeEntry } from '@/models/TimeEntry'
+import { Project } from '@/models/Project'
+import { MacroActivity } from '@/models/MacroActivity'
+import { Collaborator } from '@/models/Collaborator'
 import { requireAuth } from '@/lib/api-auth'
 
 export async function GET(request: NextRequest) {
@@ -27,12 +30,22 @@ export async function GET(request: NextRequest) {
     if (collaboratorId) filter.collaboratorId = collaboratorId
     if (projectId) filter.projectId = projectId
 
-    const entries = await TimeEntry.find(filter)
-      .populate('project', 'name')
-      .populate('macro', 'name')
-      .populate('collaborator', 'name')
-      .sort({ date: 1 })
-      .lean()
+    const entries = await TimeEntry.find(filter).sort({ date: 1 }).lean()
+
+    // Batch lookup for related data
+    const projectIds = [...new Set(entries.map((e) => e.projectId.toString()))]
+    const macroIds = [...new Set(entries.filter((e) => e.macroId).map((e) => e.macroId!.toString()))]
+    const collabIds = [...new Set(entries.map((e) => e.collaboratorId.toString()))]
+
+    const [projects, macros, collaborators] = await Promise.all([
+      Project.find({ _id: { $in: projectIds } }).select('name').lean(),
+      MacroActivity.find({ _id: { $in: macroIds } }).select('name').lean(),
+      Collaborator.find({ _id: { $in: collabIds } }).select('name').lean(),
+    ])
+
+    const projectMap = new Map(projects.map((p) => [p._id.toString(), p]))
+    const macroMap = new Map(macros.map((m) => [m._id.toString(), m]))
+    const collaboratorMap = new Map(collaborators.map((c) => [c._id.toString(), c]))
 
     if (format === 'xlsx') {
       // v1: return CSV format even for xlsx request
@@ -43,9 +56,9 @@ export async function GET(request: NextRequest) {
       'date,projectId,projectName,macroId,macroName,collaboratorId,collaboratorName,hours,isSupport,statusSnapshot,progressSnapshot,note'
     const rows = entries.map((e) => {
       const date = new Date(e.date).toISOString().split('T')[0]
-      const project = e.project as any
-      const macro = e.macro as any
-      const collaborator = e.collaborator as any
+      const project = projectMap.get(e.projectId.toString())
+      const macro = e.macroId ? macroMap.get(e.macroId.toString()) : null
+      const collaborator = collaboratorMap.get(e.collaboratorId.toString())
       return [
         date,
         e.projectId,

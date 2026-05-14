@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import { PlannedAllocation } from '@/models/PlannedAllocation'
+import { Project } from '@/models/Project'
 import { Collaborator } from '@/models/Collaborator'
 import { TimeEntry } from '@/models/TimeEntry'
 import { requireLeader, requireAuth } from '@/lib/api-auth'
@@ -21,29 +22,34 @@ export async function GET(request: NextRequest) {
     if (month) filter.month = month
 
     const allocations = await PlannedAllocation.find(filter)
-      .populate('project', 'id name type status')
-      .populate('collaborator', 'id name monthlyCapacityH')
       .sort({ createdAt: -1 })
       .lean()
+
+    // Batch lookup related data
+    const projectIds = [...new Set(allocations.map((a) => a.projectId.toString()))]
+    const collabIds = [...new Set(allocations.map((a) => a.collaboratorId.toString()))]
+
+    const [projects, collaborators] = await Promise.all([
+      Project.find({ _id: { $in: projectIds } }).select('name type status').lean(),
+      Collaborator.find({ _id: { $in: collabIds } }).select('name monthlyCapacityH').lean(),
+    ])
+
+    const projectMap = new Map(projects.map((p) => [p._id.toString(), p]))
+    const collaboratorMap = new Map(collaborators.map((c) => [c._id.toString(), c]))
 
     const result = allocations.map((a) => ({
       ...a,
       id: a._id.toString(),
-      project: a.project
-        ? {
-            id: (a.project as any)._id?.toString() || (a.project as any).id,
-            name: (a.project as any).name,
-            type: (a.project as any).type,
-            status: (a.project as any).status,
-          }
-        : null,
-      collaborator: a.collaborator
-        ? {
-            id: (a.collaborator as any)._id?.toString() || (a.collaborator as any).id,
-            name: (a.collaborator as any).name,
-            monthlyCapacityH: (a.collaborator as any).monthlyCapacityH,
-          }
-        : null,
+      projectId: a.projectId.toString(),
+      collaboratorId: a.collaboratorId.toString(),
+      project: (() => {
+        const p = projectMap.get(a.projectId.toString())
+        return p ? { id: p._id.toString(), name: p.name, type: p.type, status: p.status } : null
+      })(),
+      collaborator: (() => {
+        const c = collaboratorMap.get(a.collaboratorId.toString())
+        return c ? { id: c._id.toString(), name: c.name, monthlyCapacityH: c.monthlyCapacityH } : null
+      })(),
     }))
 
     return NextResponse.json(result)
@@ -73,7 +79,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check for existing allocation (unique constraint: projectId + collaboratorId + month)
+    // Check for existing allocation
     const existing = await PlannedAllocation.findOne({
       projectId: parsed.data.projectId,
       collaboratorId: parsed.data.collaboratorId,
@@ -99,14 +105,12 @@ export async function POST(request: NextRequest) {
 
     let warning = null
     if (collaborator) {
-      // Get actual hours for the month
       const monthEntries = await TimeEntry.find({
         collaboratorId: parsed.data.collaboratorId,
         date: { $gte: monthStart, $lte: monthEnd },
       })
       const actualHours = monthEntries.reduce((sum, e) => sum + e.hours, 0)
 
-      // Get all planned allocations for the month
       const monthAllocations = await PlannedAllocation.find({
         collaboratorId: parsed.data.collaboratorId,
         month: parsed.data.month,

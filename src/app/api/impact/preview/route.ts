@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/db'
 import { Collaborator } from '@/models/Collaborator'
 import { TimeEntry } from '@/models/TimeEntry'
+import { Project } from '@/models/Project'
 import { requireAuth } from '@/lib/api-auth'
 import { calculateUtilization } from '@/lib/business-rules'
 import { impactPreviewSchema } from '@/lib/validations'
@@ -43,9 +44,12 @@ export async function POST(request: NextRequest) {
     const entries = await TimeEntry.find({
       collaboratorId,
       date: { $gte: monthStart, $lte: monthEnd },
-    })
-      .populate('project', 'id name type')
-      .lean()
+    }).lean()
+
+    // Batch lookup projects
+    const projectIds = [...new Set(entries.map((e) => e.projectId.toString()))]
+    const projects = await Project.find({ _id: { $in: projectIds } }).select('name type').lean()
+    const projectMap = new Map(projects.map((p) => [p._id.toString(), p]))
 
     const currentHours = entries.reduce((sum, e) => sum + e.hours, 0)
     const capacity = collaborator.monthlyCapacityH
@@ -57,7 +61,7 @@ export async function POST(request: NextRequest) {
     const currentProjects = [
       ...new Map(
         entries.map((e) => {
-          const proj = e.project as any
+          const proj = projectMap.get(e.projectId.toString())
           return [
             e.projectId.toString(),
             {
