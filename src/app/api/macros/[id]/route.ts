@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { MacroActivity } from '@/models/MacroActivity'
 import { requireLeader } from '@/lib/api-auth'
 import { macroUpdateSchema } from '@/lib/validations'
 
@@ -10,6 +11,8 @@ export async function PATCH(
   try {
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const { id } = await params
     const body = await request.json()
@@ -22,7 +25,7 @@ export async function PATCH(
       )
     }
 
-    const existing = await db.macroActivity.findUnique({ where: { id } })
+    const existing = await MacroActivity.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Macro not found' },
@@ -34,9 +37,9 @@ export async function PATCH(
     if (data.plannedDelivery)
       data.plannedDelivery = new Date(data.plannedDelivery as string)
 
-    const macro = await db.macroActivity.update({ where: { id }, data })
+    const macro = await MacroActivity.findByIdAndUpdate(id, data, { new: true })
 
-    return NextResponse.json(macro)
+    return NextResponse.json({ ...macro!.toObject(), id: macro!._id.toString() })
   } catch (error) {
     console.error('Update macro error:', error)
     return NextResponse.json(
@@ -54,9 +57,11 @@ export async function DELETE(
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
 
-    const existing = await db.macroActivity.findUnique({ where: { id } })
+    const existing = await MacroActivity.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Macro not found' },
@@ -64,7 +69,7 @@ export async function DELETE(
       )
     }
 
-    await db.macroActivity.delete({ where: { id } })
+    await MacroActivity.findByIdAndDelete(id)
 
     return NextResponse.json({ ok: true })
   } catch (error) {

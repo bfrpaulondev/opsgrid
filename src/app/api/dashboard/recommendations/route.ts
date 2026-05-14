@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Collaborator } from '@/models/Collaborator'
+import { TimeEntry } from '@/models/TimeEntry'
+import { Project } from '@/models/Project'
 import { requireAuth } from '@/lib/api-auth'
 import { calculateUtilization, isLate } from '@/lib/business-rules'
 
@@ -7,6 +10,8 @@ export async function GET(request: NextRequest) {
   try {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const recommendations: string[] = []
 
@@ -22,17 +27,13 @@ export async function GET(request: NextRequest) {
       59
     )
 
-    const collaborators = await db.collaborator.findMany({
-      where: { active: true },
-    })
+    const collaborators = await Collaborator.find({ active: true }).lean()
 
     for (const collab of collaborators) {
-      const entries = await db.timeEntry.findMany({
-        where: {
-          collaboratorId: collab.id,
-          date: { gte: monthStart, lte: monthEnd },
-        },
-      })
+      const entries = await TimeEntry.find({
+        collaboratorId: collab._id,
+        date: { $gte: monthStart, $lte: monthEnd },
+      }).lean()
       const totalHours = entries.reduce((sum, e) => sum + e.hours, 0)
       const util = calculateUtilization(totalHours, collab.monthlyCapacityH)
 
@@ -48,9 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check late projects
-    const projects = await db.project.findMany({
-      where: { status: { not: 'DONE' } },
-    })
+    const projects = await Project.find({ status: { $ne: 'DONE' } }).lean()
 
     for (const project of projects) {
       if (isLate(project.plannedDelivery, project.status)) {
@@ -61,11 +60,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Check high support load
-    const monthEntries = await db.timeEntry.findMany({
-      where: {
-        date: { gte: monthStart, lte: monthEnd },
-      },
-    })
+    const monthEntries = await TimeEntry.find({
+      date: { $gte: monthStart, $lte: monthEnd },
+    }).lean()
     const totalHours = monthEntries.reduce((sum, e) => sum + e.hours, 0)
     const supportHours = monthEntries
       .filter((e) => e.isSupport)

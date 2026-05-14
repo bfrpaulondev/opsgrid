@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { TimeEntry } from '@/models/TimeEntry'
 import { requireAuth } from '@/lib/api-auth'
 import { timeEntryUpdateSchema } from '@/lib/validations'
 
@@ -10,6 +11,8 @@ export async function PATCH(
   try {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const { id } = await params
     const body = await request.json()
@@ -22,7 +25,7 @@ export async function PATCH(
       )
     }
 
-    const existing = await db.timeEntry.findUnique({ where: { id } })
+    const existing = await TimeEntry.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Time entry not found' },
@@ -33,9 +36,9 @@ export async function PATCH(
     const data: Record<string, unknown> = { ...parsed.data }
     if (data.date) data.date = new Date(data.date as string)
 
-    const entry = await db.timeEntry.update({ where: { id }, data })
+    const entry = await TimeEntry.findByIdAndUpdate(id, data, { new: true })
 
-    return NextResponse.json(entry)
+    return NextResponse.json({ ...entry!.toObject(), id: entry!._id.toString() })
   } catch (error) {
     console.error('Update entry error:', error)
     return NextResponse.json(
@@ -53,9 +56,11 @@ export async function DELETE(
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
 
-    const existing = await db.timeEntry.findUnique({ where: { id } })
+    const existing = await TimeEntry.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Time entry not found' },
@@ -63,7 +68,7 @@ export async function DELETE(
       )
     }
 
-    await db.timeEntry.delete({ where: { id } })
+    await TimeEntry.findByIdAndDelete(id)
 
     return NextResponse.json({ ok: true })
   } catch (error) {

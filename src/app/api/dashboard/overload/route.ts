@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Collaborator } from '@/models/Collaborator'
+import { TimeEntry } from '@/models/TimeEntry'
 import { requireAuth } from '@/lib/api-auth'
 import { calculateUtilization } from '@/lib/business-rules'
 
@@ -7,6 +9,8 @@ export async function GET(request: NextRequest) {
   try {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const { searchParams } = new URL(request.url)
     const monthParam = searchParams.get('month')
@@ -21,26 +25,22 @@ export async function GET(request: NextRequest) {
     const monthStart = new Date(year, month, 1)
     const monthEnd = new Date(year, month + 1, 0, 23, 59, 59)
 
-    const collaborators = await db.collaborator.findMany({
-      where: { active: true },
-    })
+    const collaborators = await Collaborator.find({ active: true }).lean()
 
     const overloaded = []
 
     for (const collab of collaborators) {
-      const entries = await db.timeEntry.findMany({
-        where: {
-          collaboratorId: collab.id,
-          date: { gte: monthStart, lte: monthEnd },
-        },
-      })
+      const entries = await TimeEntry.find({
+        collaboratorId: collab._id,
+        date: { $gte: monthStart, $lte: monthEnd },
+      }).lean()
 
       const totalHours = entries.reduce((sum, e) => sum + e.hours, 0)
       const util = calculateUtilization(totalHours, collab.monthlyCapacityH)
 
       if (util > 100) {
         overloaded.push({
-          id: collab.id,
+          id: collab._id.toString(),
           name: collab.name,
           jobTitle: collab.jobTitle,
           totalHours: Math.round(totalHours * 100) / 100,

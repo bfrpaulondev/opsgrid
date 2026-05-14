@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { PlannedAllocation } from '@/models/PlannedAllocation'
+import { Collaborator } from '@/models/Collaborator'
+import { TimeEntry } from '@/models/TimeEntry'
 import { requireLeader, requireAuth } from '@/lib/api-auth'
 import { allocationCreateSchema } from '@/lib/validations'
 import { calculateUtilization } from '@/lib/business-rules'
@@ -9,22 +12,41 @@ export async function GET(request: NextRequest) {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { searchParams } = new URL(request.url)
     const month = searchParams.get('month')
 
-    const where: Record<string, unknown> = {}
-    if (month) where.month = month
+    const filter: Record<string, unknown> = {}
+    if (month) filter.month = month
 
-    const allocations = await db.plannedAllocation.findMany({
-      where,
-      include: {
-        project: { select: { id: true, name: true, type: true, status: true } },
-        collaborator: { select: { id: true, name: true, monthlyCapacityH: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+    const allocations = await PlannedAllocation.find(filter)
+      .populate('project', 'id name type status')
+      .populate('collaborator', 'id name monthlyCapacityH')
+      .sort({ createdAt: -1 })
+      .lean()
 
-    return NextResponse.json(allocations)
+    const result = allocations.map((a) => ({
+      ...a,
+      id: a._id.toString(),
+      project: a.project
+        ? {
+            id: (a.project as any)._id?.toString() || (a.project as any).id,
+            name: (a.project as any).name,
+            type: (a.project as any).type,
+            status: (a.project as any).status,
+          }
+        : null,
+      collaborator: a.collaborator
+        ? {
+            id: (a.collaborator as any)._id?.toString() || (a.collaborator as any).id,
+            name: (a.collaborator as any).name,
+            monthlyCapacityH: (a.collaborator as any).monthlyCapacityH,
+          }
+        : null,
+    }))
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('List allocations error:', error)
     return NextResponse.json(
@@ -39,6 +61,8 @@ export async function POST(request: NextRequest) {
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const body = await request.json()
     const parsed = allocationCreateSchema.safeParse(body)
 
@@ -50,14 +74,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check for existing allocation (unique constraint: projectId + collaboratorId + month)
-    const existing = await db.plannedAllocation.findUnique({
-      where: {
-        projectId_collaboratorId_month: {
-          projectId: parsed.data.projectId,
-          collaboratorId: parsed.data.collaboratorId,
-          month: parsed.data.month,
-        },
-      },
+    const existing = await PlannedAllocation.findOne({
+      projectId: parsed.data.projectId,
+      collaboratorId: parsed.data.collaboratorId,
+      month: parsed.data.month,
     })
 
     if (existing) {
@@ -67,9 +87,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const allocation = await db.plannedAllocation.create({
-      data: parsed.data,
-    })
+    const allocation = await PlannedAllocation.create(parsed.data)
 
     // Impact analysis
     const monthNum = parseInt(parsed.data.month.split('-')[1]) - 1
@@ -77,27 +95,21 @@ export async function POST(request: NextRequest) {
     const monthStart = new Date(yearNum, monthNum, 1)
     const monthEnd = new Date(yearNum, monthNum + 1, 0, 23, 59, 59)
 
-    const collaborator = await db.collaborator.findUnique({
-      where: { id: parsed.data.collaboratorId },
-    })
+    const collaborator = await Collaborator.findById(parsed.data.collaboratorId)
 
     let warning = null
     if (collaborator) {
       // Get actual hours for the month
-      const monthEntries = await db.timeEntry.findMany({
-        where: {
-          collaboratorId: parsed.data.collaboratorId,
-          date: { gte: monthStart, lte: monthEnd },
-        },
+      const monthEntries = await TimeEntry.find({
+        collaboratorId: parsed.data.collaboratorId,
+        date: { $gte: monthStart, $lte: monthEnd },
       })
       const actualHours = monthEntries.reduce((sum, e) => sum + e.hours, 0)
 
       // Get all planned allocations for the month
-      const monthAllocations = await db.plannedAllocation.findMany({
-        where: {
-          collaboratorId: parsed.data.collaboratorId,
-          month: parsed.data.month,
-        },
+      const monthAllocations = await PlannedAllocation.find({
+        collaboratorId: parsed.data.collaboratorId,
+        month: parsed.data.month,
       })
       const totalPlanned = monthAllocations.reduce(
         (sum, a) => sum + a.plannedHours,
@@ -119,7 +131,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ allocation, warning }, { status: 201 })
+    return NextResponse.json(
+      {
+        allocation: { ...allocation.toObject(), id: allocation._id.toString() },
+        warning,
+      },
+      { status: 201 }
+    )
   } catch (error) {
     console.error('Create allocation error:', error)
     return NextResponse.json(

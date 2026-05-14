@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Collaborator } from '@/models/Collaborator'
+import { User } from '@/models/User'
 import { requireLeader, requireAuth } from '@/lib/api-auth'
 import { collaboratorCreateSchema } from '@/lib/validations'
 
@@ -8,22 +10,38 @@ export async function GET(request: NextRequest) {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { searchParams } = new URL(request.url)
     const active = searchParams.get('active')
 
-    const where = active === 'true' ? { active: true } : {}
+    const filter = active === 'true' ? { active: true } : {}
 
-    const collaborators = await db.collaborator.findMany({
-      where,
-      include: {
-        user: {
-          select: { id: true, email: true, name: true, role: true },
-        },
-      },
-      orderBy: { name: 'asc' },
-    })
+    const collaborators = await Collaborator.find(filter).sort({ name: 1 }).lean()
 
-    return NextResponse.json(collaborators)
+    // Attach user info for each collaborator
+    const result = await Promise.all(
+      collaborators.map(async (collab) => {
+        const user = await User.findOne({ collaboratorId: collab._id })
+          .select('email name role')
+          .lean()
+
+        return {
+          ...collab,
+          id: collab._id.toString(),
+          user: user
+            ? {
+                id: user._id.toString(),
+                email: user.email,
+                name: user.name,
+                role: user.role,
+              }
+            : null,
+        }
+      })
+    )
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('List collaborators error:', error)
     return NextResponse.json(
@@ -38,6 +56,8 @@ export async function POST(request: NextRequest) {
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const body = await request.json()
     const parsed = collaboratorCreateSchema.safeParse(body)
 
@@ -48,11 +68,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const collaborator = await db.collaborator.create({
-      data: parsed.data,
-    })
+    const collaborator = await Collaborator.create(parsed.data)
 
-    return NextResponse.json(collaborator, { status: 201 })
+    return NextResponse.json(
+      { ...collaborator.toObject(), id: collaborator._id.toString() },
+      { status: 201 }
+    )
   } catch (error) {
     console.error('Create collaborator error:', error)
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/api-auth'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { User } from '@/models/User'
 
 export async function GET(request: NextRequest) {
   const authResult = await getAuthUser(request)
@@ -9,11 +10,11 @@ export async function GET(request: NextRequest) {
     return authResult.response
   }
 
-  // Fetch full user data from DB for the name
-  const user = await db.user.findUnique({
-    where: { id: authResult.user.userId },
-    select: { id: true, email: true, name: true, role: true, collaboratorId: true },
-  })
+  await connectDB()
+
+  const user = await User.findById(authResult.user.userId).select(
+    'email name role collaboratorId'
+  )
 
   if (!user) {
     return NextResponse.json(
@@ -22,5 +23,11 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  return NextResponse.json(user)
+  return NextResponse.json({
+    id: user._id.toString(),
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    collaboratorId: user.collaboratorId ? user.collaboratorId.toString() : null,
+  })
 }

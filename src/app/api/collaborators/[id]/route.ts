@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Collaborator } from '@/models/Collaborator'
 import { requireLeader } from '@/lib/api-auth'
 import { collaboratorUpdateSchema } from '@/lib/validations'
 
@@ -10,6 +11,8 @@ export async function PATCH(
   try {
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const { id } = await params
     const body = await request.json()
@@ -22,7 +25,7 @@ export async function PATCH(
       )
     }
 
-    const existing = await db.collaborator.findUnique({ where: { id } })
+    const existing = await Collaborator.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Collaborator not found' },
@@ -30,12 +33,11 @@ export async function PATCH(
       )
     }
 
-    const collaborator = await db.collaborator.update({
-      where: { id },
-      data: parsed.data,
+    const collaborator = await Collaborator.findByIdAndUpdate(id, parsed.data, {
+      new: true,
     })
 
-    return NextResponse.json(collaborator)
+    return NextResponse.json({ ...collaborator!.toObject(), id: collaborator!._id.toString() })
   } catch (error) {
     console.error('Update collaborator error:', error)
     return NextResponse.json(
@@ -53,9 +55,11 @@ export async function DELETE(
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
 
-    const existing = await db.collaborator.findUnique({ where: { id } })
+    const existing = await Collaborator.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Collaborator not found' },
@@ -64,12 +68,13 @@ export async function DELETE(
     }
 
     // Soft delete
-    const collaborator = await db.collaborator.update({
-      where: { id },
-      data: { active: false },
-    })
+    const collaborator = await Collaborator.findByIdAndUpdate(
+      id,
+      { active: false },
+      { new: true }
+    )
 
-    return NextResponse.json(collaborator)
+    return NextResponse.json({ ...collaborator!.toObject(), id: collaborator!._id.toString() })
   } catch (error) {
     console.error('Delete collaborator error:', error)
     return NextResponse.json(

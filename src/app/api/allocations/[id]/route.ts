@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { PlannedAllocation } from '@/models/PlannedAllocation'
 import { requireLeader } from '@/lib/api-auth'
 import { allocationUpdateSchema } from '@/lib/validations'
 
@@ -10,6 +11,8 @@ export async function PATCH(
   try {
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const { id } = await params
     const body = await request.json()
@@ -22,7 +25,7 @@ export async function PATCH(
       )
     }
 
-    const existing = await db.plannedAllocation.findUnique({ where: { id } })
+    const existing = await PlannedAllocation.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Allocation not found' },
@@ -30,12 +33,11 @@ export async function PATCH(
       )
     }
 
-    const allocation = await db.plannedAllocation.update({
-      where: { id },
-      data: parsed.data,
+    const allocation = await PlannedAllocation.findByIdAndUpdate(id, parsed.data, {
+      new: true,
     })
 
-    return NextResponse.json(allocation)
+    return NextResponse.json({ ...allocation!.toObject(), id: allocation!._id.toString() })
   } catch (error) {
     console.error('Update allocation error:', error)
     return NextResponse.json(
@@ -53,9 +55,11 @@ export async function DELETE(
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
 
-    const existing = await db.plannedAllocation.findUnique({ where: { id } })
+    const existing = await PlannedAllocation.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Allocation not found' },
@@ -63,7 +67,7 @@ export async function DELETE(
       )
     }
 
-    await db.plannedAllocation.delete({ where: { id } })
+    await PlannedAllocation.findByIdAndDelete(id)
 
     return NextResponse.json({ ok: true })
   } catch (error) {

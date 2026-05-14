@@ -1,13 +1,20 @@
-import { PrismaClient } from '@prisma/client'
+import mongoose from 'mongoose'
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/opsgrid'
+
+const globalForMongoose = globalThis as unknown as {
+  mongooseConn: typeof mongoose | undefined
 }
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: ['query'],
-  })
+export async function connectDB() {
+  if (globalForMongoose.mongooseConn) {
+    return globalForMongoose.mongooseConn
+  }
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+  const conn = await mongoose.connect(MONGODB_URI)
+  globalForMongoose.mongooseConn = conn
+  return conn
+}
+
+// Default export for convenience
+export default connectDB

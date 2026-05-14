@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { TimeEntry } from '@/models/TimeEntry'
+import { Collaborator } from '@/models/Collaborator'
 import { requireAuth } from '@/lib/api-auth'
 import { timeEntryCreateSchema } from '@/lib/validations'
 import { calculateUtilization } from '@/lib/business-rules'
@@ -9,33 +11,56 @@ export async function GET(request: NextRequest) {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { searchParams } = new URL(request.url)
     const from = searchParams.get('from')
     const to = searchParams.get('to')
     const collaboratorId = searchParams.get('collaboratorId')
     const projectId = searchParams.get('projectId')
 
-    const where: Record<string, unknown> = {}
+    const filter: Record<string, unknown> = {}
 
     if (from || to) {
-      where.date = {}
-      if (from) (where.date as Record<string, unknown>).gte = new Date(from)
-      if (to) (where.date as Record<string, unknown>).lte = new Date(to)
+      filter.date = {}
+      if (from) (filter.date as Record<string, unknown>).$gte = new Date(from)
+      if (to) (filter.date as Record<string, unknown>).$lte = new Date(to)
     }
-    if (collaboratorId) where.collaboratorId = collaboratorId
-    if (projectId) where.projectId = projectId
+    if (collaboratorId) filter.collaboratorId = collaboratorId
+    if (projectId) filter.projectId = projectId
 
-    const entries = await db.timeEntry.findMany({
-      where,
-      include: {
-        project: { select: { id: true, name: true, type: true } },
-        macro: { select: { id: true, name: true } },
-        collaborator: { select: { id: true, name: true } },
-      },
-      orderBy: { date: 'desc' },
-    })
+    const entries = await TimeEntry.find(filter)
+      .populate('project', 'id name type')
+      .populate('macro', 'id name')
+      .populate('collaborator', 'id name')
+      .sort({ date: -1 })
+      .lean()
 
-    return NextResponse.json(entries)
+    const result = entries.map((entry) => ({
+      ...entry,
+      id: entry._id.toString(),
+      project: entry.project
+        ? {
+            id: (entry.project as any)._id?.toString() || (entry.project as any).id,
+            name: (entry.project as any).name,
+            type: (entry.project as any).type,
+          }
+        : null,
+      macro: entry.macro
+        ? {
+            id: (entry.macro as any)._id?.toString() || (entry.macro as any).id,
+            name: (entry.macro as any).name,
+          }
+        : null,
+      collaborator: entry.collaborator
+        ? {
+            id: (entry.collaborator as any)._id?.toString() || (entry.collaborator as any).id,
+            name: (entry.collaborator as any).name,
+          }
+        : null,
+    }))
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('List entries error:', error)
     return NextResponse.json(
@@ -49,6 +74,8 @@ export async function POST(request: NextRequest) {
   try {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const body = await request.json()
     const parsed = timeEntryCreateSchema.safeParse(body)
@@ -65,24 +92,20 @@ export async function POST(request: NextRequest) {
       date: new Date(parsed.data.date),
     }
 
-    const entry = await db.timeEntry.create({ data })
+    const entry = await TimeEntry.create(data)
 
     // Impact analysis warning: check if collaborator is overloaded for that month
     const entryDate = new Date(parsed.data.date)
     const monthStart = new Date(entryDate.getFullYear(), entryDate.getMonth(), 1)
     const monthEnd = new Date(entryDate.getFullYear(), entryDate.getMonth() + 1, 0, 23, 59, 59)
 
-    const collaborator = await db.collaborator.findUnique({
-      where: { id: parsed.data.collaboratorId },
-    })
+    const collaborator = await Collaborator.findById(parsed.data.collaboratorId)
 
     let warning = null
     if (collaborator) {
-      const monthEntries = await db.timeEntry.findMany({
-        where: {
-          collaboratorId: parsed.data.collaboratorId,
-          date: { gte: monthStart, lte: monthEnd },
-        },
+      const monthEntries = await TimeEntry.find({
+        collaboratorId: parsed.data.collaboratorId,
+        date: { $gte: monthStart, $lte: monthEnd },
       })
       const totalHours = monthEntries.reduce((sum, e) => sum + e.hours, 0)
       const utilization = calculateUtilization(
@@ -98,7 +121,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ entry, warning }, { status: 201 })
+    return NextResponse.json(
+      {
+        entry: { ...entry.toObject(), id: entry._id.toString() },
+        warning,
+      },
+      { status: 201 }
+    )
   } catch (error) {
     console.error('Create entry error:', error)
     return NextResponse.json(

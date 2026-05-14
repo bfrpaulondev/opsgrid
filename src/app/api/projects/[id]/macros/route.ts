@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Project } from '@/models/Project'
+import { MacroActivity } from '@/models/MacroActivity'
 import { requireLeader } from '@/lib/api-auth'
 import { macroCreateSchema } from '@/lib/validations'
 
@@ -11,9 +13,11 @@ export async function POST(
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
 
-    const project = await db.project.findUnique({ where: { id } })
+    const project = await Project.findById(id)
     if (!project) {
       return NextResponse.json(
         { message: 'Project not found' },
@@ -39,9 +43,12 @@ export async function POST(
     if (data.plannedDelivery)
       data.plannedDelivery = new Date(data.plannedDelivery as string)
 
-    const macro = await db.macroActivity.create({ data })
+    const macro = await MacroActivity.create(data)
 
-    return NextResponse.json(macro, { status: 201 })
+    return NextResponse.json(
+      { ...macro.toObject(), id: macro._id.toString() },
+      { status: 201 }
+    )
   } catch (error) {
     console.error('Create macro error:', error)
     return NextResponse.json(

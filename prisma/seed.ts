@@ -1,50 +1,52 @@
-import { PrismaClient } from '@prisma/client'
+import mongoose from 'mongoose'
 import bcrypt from 'bcryptjs'
 import { subDays, format, addDays } from 'date-fns'
+import { User } from '../src/models/User'
+import { Collaborator } from '../src/models/Collaborator'
+import { Project } from '../src/models/Project'
+import { MacroActivity } from '../src/models/MacroActivity'
+import { TimeEntry } from '../src/models/TimeEntry'
+import { PlannedAllocation } from '../src/models/PlannedAllocation'
 
-const db = new PrismaClient()
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://bfrpaulondev_db_user:ohDOYLmDAN6NGHnS@cluster0.sczzlhb.mongodb.net/opsgrid'
 
 async function main() {
   console.log('🌱 Seeding database...')
 
+  await mongoose.connect(MONGODB_URI)
+  console.log('✅ Connected to MongoDB')
+
   // Clean existing data
-  await db.timeEntry.deleteMany()
-  await db.plannedAllocation.deleteMany()
-  await db.macroActivity.deleteMany()
-  await db.monthlySnapshot.deleteMany()
-  await db.user.deleteMany()
-  await db.collaborator.deleteMany()
-  await db.project.deleteMany()
+  await TimeEntry.deleteMany({})
+  await PlannedAllocation.deleteMany({})
+  await MacroActivity.deleteMany({})
+  await User.deleteMany({})
+  await Collaborator.deleteMany({})
+  await Project.deleteMany({})
 
   // ─── Collaborators ───────────────────────────────────────
-  const tiago = await db.collaborator.create({
-    data: {
-      name: 'Tiago Neves',
-      jobTitle: 'Tech Lead',
-      monthlyCapacityH: 160,
-      supportPct: 0.15,
-      active: true,
-    },
+  const tiago = await Collaborator.create({
+    name: 'Tiago Neves',
+    jobTitle: 'Tech Lead',
+    monthlyCapacityH: 160,
+    supportPct: 0.15,
+    active: true,
   })
 
-  const ines = await db.collaborator.create({
-    data: {
-      name: 'Inês Rocha',
-      jobTitle: 'DevOps Engineer',
-      monthlyCapacityH: 160,
-      supportPct: 0.25,
-      active: true,
-    },
+  const ines = await Collaborator.create({
+    name: 'Inês Rocha',
+    jobTitle: 'DevOps Engineer',
+    monthlyCapacityH: 160,
+    supportPct: 0.25,
+    active: true,
   })
 
-  const rui = await db.collaborator.create({
-    data: {
-      name: 'Rui Matos',
-      jobTitle: 'Security Analyst',
-      monthlyCapacityH: 160,
-      supportPct: 0.1,
-      active: true,
-    },
+  const rui = await Collaborator.create({
+    name: 'Rui Matos',
+    jobTitle: 'Security Analyst',
+    monthlyCapacityH: 160,
+    supportPct: 0.1,
+    active: true,
   })
 
   console.log('✅ Created 3 collaborators')
@@ -52,157 +54,131 @@ async function main() {
   // ─── Users ───────────────────────────────────────────────
   const passwordHash = await bcrypt.hash('Ops123!', 12)
 
-  await db.user.create({
-    data: {
-      email: 'leader@opsgrid.local',
-      passwordHash,
-      name: 'Tiago Neves',
-      role: 'LEADER',
-      collaboratorId: tiago.id,
-    },
+  await User.create({
+    email: 'leader@opsgrid.local',
+    passwordHash,
+    name: 'Tiago Neves',
+    role: 'LEADER',
+    collaboratorId: tiago._id,
   })
 
-  await db.user.create({
-    data: {
-      email: 'colaborador@opsgrid.local',
-      passwordHash,
-      name: 'Inês Rocha',
-      role: 'COLLABORATOR',
-      collaboratorId: ines.id,
-    },
+  await User.create({
+    email: 'colaborador@opsgrid.local',
+    passwordHash,
+    name: 'Inês Rocha',
+    role: 'COLLABORATOR',
+    collaboratorId: ines._id,
   })
 
   console.log('✅ Created 2 users')
 
   // ─── Projects ────────────────────────────────────────────
-  const projectCybersec = await db.project.create({
-    data: {
-      name: 'Plataforma de Cibersegurança',
-      client: 'BankPlus',
-      type: 'PROJECT',
-      priority: 'HIGH',
-      status: 'IN_PROGRESS',
-      startDate: subDays(new Date(), 45),
-      plannedDelivery: addDays(new Date(), 30),
-      riskNotes: 'Dependência de fornecedor externo para módulo SIEM',
-    },
+  const projectCybersec = await Project.create({
+    name: 'Plataforma de Cibersegurança',
+    client: 'BankPlus',
+    type: 'PROJECT',
+    priority: 'HIGH',
+    status: 'IN_PROGRESS',
+    startDate: subDays(new Date(), 45),
+    plannedDelivery: addDays(new Date(), 30),
+    riskNotes: 'Dependência de fornecedor externo para módulo SIEM',
   })
 
-  const projectCloudMig = await db.project.create({
-    data: {
-      name: 'Migração Cloud AWS',
-      client: 'RetailMax',
-      type: 'PROJECT',
-      priority: 'CRITICAL',
-      status: 'IN_PROGRESS',
-      startDate: subDays(new Date(), 60),
-      plannedDelivery: addDays(new Date(), 15),
-      riskNotes: 'Janela de migração limitada — risco de downtime',
-    },
+  const projectCloudMig = await Project.create({
+    name: 'Migração Cloud AWS',
+    client: 'RetailMax',
+    type: 'PROJECT',
+    priority: 'CRITICAL',
+    status: 'IN_PROGRESS',
+    startDate: subDays(new Date(), 60),
+    plannedDelivery: addDays(new Date(), 15),
+    riskNotes: 'Janela de migração limitada — risco de downtime',
   })
 
-  const projectSIEM = await db.project.create({
-    data: {
-      name: 'Monitorização SIEM',
-      client: 'Internal',
-      type: 'MACRO',
-      priority: 'MEDIUM',
-      status: 'IN_PROGRESS',
-      startDate: subDays(new Date(), 30),
-      plannedDelivery: addDays(new Date(), 60),
-    },
+  const projectSIEM = await Project.create({
+    name: 'Monitorização SIEM',
+    client: 'Internal',
+    type: 'MACRO',
+    priority: 'MEDIUM',
+    status: 'IN_PROGRESS',
+    startDate: subDays(new Date(), 30),
+    plannedDelivery: addDays(new Date(), 60),
   })
 
-  const projectRansomware = await db.project.create({
-    data: {
-      name: 'Incidente Ransomware Q1',
-      client: 'BankPlus',
-      type: 'INCIDENT',
-      priority: 'CRITICAL',
-      status: 'DONE',
-      startDate: subDays(new Date(), 55),
-      plannedDelivery: subDays(new Date(), 20),
-      actualDelivery: subDays(new Date(), 18),
-      riskNotes: 'Incidente resolvido — pós-mortem pendente',
-    },
+  const projectRansomware = await Project.create({
+    name: 'Incidente Ransomware Q1',
+    client: 'BankPlus',
+    type: 'INCIDENT',
+    priority: 'CRITICAL',
+    status: 'DONE',
+    startDate: subDays(new Date(), 55),
+    plannedDelivery: subDays(new Date(), 20),
+    actualDelivery: subDays(new Date(), 18),
+    riskNotes: 'Incidente resolvido — pós-mortem pendente',
   })
 
-  const projectVPN = await db.project.create({
-    data: {
-      name: 'Pedido de Acesso VPN',
-      client: 'Internal',
-      type: 'REQUEST',
-      priority: 'LOW',
-      status: 'IN_PROGRESS',
-      startDate: subDays(new Date(), 10),
-      plannedDelivery: addDays(new Date(), 5),
-    },
+  const projectVPN = await Project.create({
+    name: 'Pedido de Acesso VPN',
+    client: 'Internal',
+    type: 'REQUEST',
+    priority: 'LOW',
+    status: 'IN_PROGRESS',
+    startDate: subDays(new Date(), 10),
+    plannedDelivery: addDays(new Date(), 5),
   })
 
-  const projectAudit = await db.project.create({
-    data: {
-      name: 'Auditoria de Compliance',
-      client: 'RetailMax',
-      type: 'PROJECT',
-      priority: 'MEDIUM',
-      status: 'TRIAGE',
-      startDate: subDays(new Date(), 5),
-      plannedDelivery: addDays(new Date(), 90),
-      riskNotes: 'Aguarda aprovação de escopo pelo cliente',
-    },
+  const projectAudit = await Project.create({
+    name: 'Auditoria de Compliance',
+    client: 'RetailMax',
+    type: 'PROJECT',
+    priority: 'MEDIUM',
+    status: 'TRIAGE',
+    startDate: subDays(new Date(), 5),
+    plannedDelivery: addDays(new Date(), 90),
+    riskNotes: 'Aguarda aprovação de escopo pelo cliente',
   })
 
   console.log('✅ Created 6 projects')
 
   // ─── Macro Activities ────────────────────────────────────
-  const macro1 = await db.macroActivity.create({
-    data: {
-      projectId: projectCybersec.id,
-      name: 'Análise de Requisitos',
-      status: 'DONE',
-      progressPct: 100,
-      plannedDelivery: subDays(new Date(), 20),
-    },
+  const macro1 = await MacroActivity.create({
+    projectId: projectCybersec._id,
+    name: 'Análise de Requisitos',
+    status: 'DONE',
+    progressPct: 100,
+    plannedDelivery: subDays(new Date(), 20),
   })
 
-  const macro2 = await db.macroActivity.create({
-    data: {
-      projectId: projectCybersec.id,
-      name: 'Desenvolvimento Core',
-      status: 'IN_PROGRESS',
-      progressPct: 65,
-      plannedDelivery: addDays(new Date(), 15),
-    },
+  const macro2 = await MacroActivity.create({
+    projectId: projectCybersec._id,
+    name: 'Desenvolvimento Core',
+    status: 'IN_PROGRESS',
+    progressPct: 65,
+    plannedDelivery: addDays(new Date(), 15),
   })
 
-  const macro3 = await db.macroActivity.create({
-    data: {
-      projectId: projectCybersec.id,
-      name: 'Integração SIEM',
-      status: 'NOT_STARTED',
-      progressPct: 0,
-      plannedDelivery: addDays(new Date(), 30),
-    },
+  const macro3 = await MacroActivity.create({
+    projectId: projectCybersec._id,
+    name: 'Integração SIEM',
+    status: 'NOT_STARTED',
+    progressPct: 0,
+    plannedDelivery: addDays(new Date(), 30),
   })
 
-  const macro4 = await db.macroActivity.create({
-    data: {
-      projectId: projectCloudMig.id,
-      name: 'Assessment de Infraestrutura',
-      status: 'DONE',
-      progressPct: 100,
-      plannedDelivery: subDays(new Date(), 30),
-    },
+  const macro4 = await MacroActivity.create({
+    projectId: projectCloudMig._id,
+    name: 'Assessment de Infraestrutura',
+    status: 'DONE',
+    progressPct: 100,
+    plannedDelivery: subDays(new Date(), 30),
   })
 
-  const macro5 = await db.macroActivity.create({
-    data: {
-      projectId: projectCloudMig.id,
-      name: 'Migração de Workloads',
-      status: 'IN_PROGRESS',
-      progressPct: 40,
-      plannedDelivery: addDays(new Date(), 15),
-    },
+  const macro5 = await MacroActivity.create({
+    projectId: projectCloudMig._id,
+    name: 'Migração de Workloads',
+    status: 'IN_PROGRESS',
+    progressPct: 40,
+    plannedDelivery: addDays(new Date(), 15),
   })
 
   console.log('✅ Created 5 macro activities')
@@ -219,21 +195,6 @@ async function main() {
   ]
   const macros = [macro1, macro2, macro3, macro4, macro5]
 
-  const statuses = ['NOT_STARTED', 'IN_PROGRESS', 'TRIAGE', 'BLOCKED', 'DONE']
-
-  const timeEntriesData: Array<{
-    date: Date
-    projectId: string
-    macroId: string | null
-    collaboratorId: string
-    hours: number
-    isSupport: boolean
-    statusSnapshot: string
-    progressSnapshot: number | null
-    note: string | null
-  }> = []
-
-  // Generate realistic time entries
   const entryTemplates = [
     // Tiago entries (12 entries)
     { collab: 0, proj: 0, macro: 1, daysAgo: 1, hours: 8, isSupport: false, status: 'IN_PROGRESS', progress: 65, note: 'Desenvolvimento do módulo de autenticação' },
@@ -272,16 +233,27 @@ async function main() {
     { collab: 2, proj: 3, macro: null, daysAgo: 38, hours: 8, isSupport: false, status: 'IN_PROGRESS', progress: null, note: 'Resposta a incidente' },
   ]
 
+  const timeEntriesData: Array<{
+    date: Date
+    projectId: mongoose.Types.ObjectId
+    macroId: mongoose.Types.ObjectId | null
+    collaboratorId: mongoose.Types.ObjectId
+    hours: number
+    isSupport: boolean
+    statusSnapshot: string
+    progressSnapshot: number | null
+    note: string | null
+  }> = []
+
   for (const entry of entryTemplates) {
     const date = subDays(new Date(), entry.daysAgo)
-    // Normalize date to start of day
     const normalizedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
     timeEntriesData.push({
       date: normalizedDate,
-      projectId: projects[entry.proj].id,
-      macroId: entry.macro !== null ? macros[entry.macro].id : null,
-      collaboratorId: collaborators[entry.collab].id,
+      projectId: projects[entry.proj]._id,
+      macroId: entry.macro !== null ? macros[entry.macro]._id : null,
+      collaboratorId: collaborators[entry.collab]._id,
       hours: entry.hours,
       isSupport: entry.isSupport,
       statusSnapshot: entry.status,
@@ -290,70 +262,57 @@ async function main() {
     })
   }
 
-  for (const entryData of timeEntriesData) {
-    await db.timeEntry.create({ data: entryData })
-  }
-
+  await TimeEntry.insertMany(timeEntriesData)
   console.log(`✅ Created ${timeEntriesData.length} time entries`)
 
   // ─── Planned Allocations (5 for current month) ──────────
   const currentMonth = format(new Date(), 'yyyy-MM')
 
-  await db.plannedAllocation.create({
-    data: {
-      projectId: projectCybersec.id,
-      collaboratorId: tiago.id,
-      month: currentMonth,
-      plannedHours: 80,
-    },
+  await PlannedAllocation.create({
+    projectId: projectCybersec._id,
+    collaboratorId: tiago._id,
+    month: currentMonth,
+    plannedHours: 80,
   })
 
-  await db.plannedAllocation.create({
-    data: {
-      projectId: projectCloudMig.id,
-      collaboratorId: tiago.id,
-      month: currentMonth,
-      plannedHours: 40,
-    },
+  await PlannedAllocation.create({
+    projectId: projectCloudMig._id,
+    collaboratorId: tiago._id,
+    month: currentMonth,
+    plannedHours: 40,
   })
 
-  await db.plannedAllocation.create({
-    data: {
-      projectId: projectCloudMig.id,
-      collaboratorId: ines.id,
-      month: currentMonth,
-      plannedHours: 100,
-    },
+  await PlannedAllocation.create({
+    projectId: projectCloudMig._id,
+    collaboratorId: ines._id,
+    month: currentMonth,
+    plannedHours: 100,
   })
 
-  await db.plannedAllocation.create({
-    data: {
-      projectId: projectSIEM.id,
-      collaboratorId: ines.id,
-      month: currentMonth,
-      plannedHours: 40,
-    },
+  await PlannedAllocation.create({
+    projectId: projectSIEM._id,
+    collaboratorId: ines._id,
+    month: currentMonth,
+    plannedHours: 40,
   })
 
-  await db.plannedAllocation.create({
-    data: {
-      projectId: projectCybersec.id,
-      collaboratorId: rui.id,
-      month: currentMonth,
-      plannedHours: 60,
-    },
+  await PlannedAllocation.create({
+    projectId: projectCybersec._id,
+    collaboratorId: rui._id,
+    month: currentMonth,
+    plannedHours: 60,
   })
 
   console.log('✅ Created 5 planned allocations')
 
   // ─── Summary ─────────────────────────────────────────────
   const counts = {
-    users: await db.user.count(),
-    collaborators: await db.collaborator.count(),
-    projects: await db.project.count(),
-    macros: await db.macroActivity.count(),
-    timeEntries: await db.timeEntry.count(),
-    allocations: await db.plannedAllocation.count(),
+    users: await User.countDocuments(),
+    collaborators: await Collaborator.countDocuments(),
+    projects: await Project.countDocuments(),
+    macros: await MacroActivity.countDocuments(),
+    timeEntries: await TimeEntry.countDocuments(),
+    allocations: await PlannedAllocation.countDocuments(),
   }
 
   console.log('\n📊 Seed Summary:')
@@ -372,5 +331,5 @@ main()
     process.exit(1)
   })
   .finally(async () => {
-    await db.$disconnect()
+    await mongoose.disconnect()
   })

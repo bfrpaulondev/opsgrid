@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Project } from '@/models/Project'
+import { MacroActivity } from '@/models/MacroActivity'
+import { TimeEntry } from '@/models/TimeEntry'
+import { PlannedAllocation } from '@/models/PlannedAllocation'
 import { requireLeader, requireAuth } from '@/lib/api-auth'
 import { projectUpdateSchema } from '@/lib/validations'
 import { calculateFTE, calculateUtilization, calculateProgress } from '@/lib/business-rules'
@@ -12,18 +16,11 @@ export async function GET(
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
 
-    const project = await db.project.findUnique({
-      where: { id },
-      include: {
-        macros: {
-          orderBy: { createdAt: 'asc' },
-        },
-        entries: true,
-        allocations: true,
-      },
-    })
+    const project = await Project.findById(id).lean()
 
     if (!project) {
       return NextResponse.json(
@@ -32,10 +29,16 @@ export async function GET(
       )
     }
 
+    const [macros, entries, allocations] = await Promise.all([
+      MacroActivity.find({ projectId: id }).sort({ createdAt: 1 }).lean(),
+      TimeEntry.find({ projectId: id }).lean(),
+      PlannedAllocation.find({ projectId: id }).lean(),
+    ])
+
     // Aggregated data
-    const totalHours = project.entries.reduce((sum, e) => sum + e.hours, 0)
+    const totalHours = entries.reduce((sum, e) => sum + e.hours, 0)
     const totalFTE = calculateFTE(totalHours)
-    const totalPlannedHours = project.allocations.reduce(
+    const totalPlannedHours = allocations.reduce(
       (sum, a) => sum + a.plannedHours,
       0
     )
@@ -44,6 +47,10 @@ export async function GET(
 
     return NextResponse.json({
       ...project,
+      id: project._id.toString(),
+      macros: macros.map((m) => ({ ...m, id: m._id.toString() })),
+      entries: entries.map((e) => ({ ...e, id: e._id.toString() })),
+      allocations: allocations.map((a) => ({ ...a, id: a._id.toString() })),
       aggregated: {
         totalHours: Math.round(totalHours * 100) / 100,
         totalFTE,
@@ -69,6 +76,8 @@ export async function PATCH(
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
     const body = await request.json()
     const parsed = projectUpdateSchema.safeParse(body)
@@ -80,7 +89,7 @@ export async function PATCH(
       )
     }
 
-    const existing = await db.project.findUnique({ where: { id } })
+    const existing = await Project.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Project not found' },
@@ -96,9 +105,9 @@ export async function PATCH(
     if (data.actualDelivery)
       data.actualDelivery = new Date(data.actualDelivery as string)
 
-    const project = await db.project.update({ where: { id }, data })
+    const project = await Project.findByIdAndUpdate(id, data, { new: true })
 
-    return NextResponse.json(project)
+    return NextResponse.json({ ...project!.toObject(), id: project!._id.toString() })
   } catch (error) {
     console.error('Update project error:', error)
     return NextResponse.json(
@@ -116,9 +125,11 @@ export async function DELETE(
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
 
-    const existing = await db.project.findUnique({ where: { id } })
+    const existing = await Project.findById(id)
     if (!existing) {
       return NextResponse.json(
         { message: 'Project not found' },
@@ -126,7 +137,11 @@ export async function DELETE(
       )
     }
 
-    await db.project.delete({ where: { id } })
+    // Delete related macros, entries, and allocations
+    await MacroActivity.deleteMany({ projectId: id })
+    await TimeEntry.deleteMany({ projectId: id })
+    await PlannedAllocation.deleteMany({ projectId: id })
+    await Project.findByIdAndDelete(id)
 
     return NextResponse.json({ ok: true })
   } catch (error) {

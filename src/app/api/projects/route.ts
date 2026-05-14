@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Project } from '@/models/Project'
+import { MacroActivity } from '@/models/MacroActivity'
+import { TimeEntry } from '@/models/TimeEntry'
+import { PlannedAllocation } from '@/models/PlannedAllocation'
 import { requireLeader, requireAuth } from '@/lib/api-auth'
 import { projectCreateSchema } from '@/lib/validations'
 
@@ -8,30 +12,44 @@ export async function GET(request: NextRequest) {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type')
     const status = searchParams.get('status')
     const priority = searchParams.get('priority')
 
-    const where: Record<string, string> = {}
-    if (type) where.type = type
-    if (status) where.status = status
-    if (priority) where.priority = priority
+    const filter: Record<string, string> = {}
+    if (type) filter.type = type
+    if (status) filter.status = status
+    if (priority) filter.priority = priority
 
-    const projects = await db.project.findMany({
-      where,
-      include: {
-        macros: {
-          orderBy: { createdAt: 'asc' },
-        },
-        _count: {
-          select: { entries: true, allocations: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+    const projects = await Project.find(filter)
+      .sort({ createdAt: -1 })
+      .lean()
 
-    return NextResponse.json(projects)
+    // Attach macros and counts for each project
+    const result = await Promise.all(
+      projects.map(async (project) => {
+        const [macros, entryCount, allocationCount] = await Promise.all([
+          MacroActivity.find({ projectId: project._id }).sort({ createdAt: 1 }).lean(),
+          TimeEntry.countDocuments({ projectId: project._id }),
+          PlannedAllocation.countDocuments({ projectId: project._id }),
+        ])
+
+        return {
+          ...project,
+          id: project._id.toString(),
+          macros: macros.map((m) => ({ ...m, id: m._id.toString() })),
+          _count: {
+            entries: entryCount,
+            allocations: allocationCount,
+          },
+        }
+      })
+    )
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('List projects error:', error)
     return NextResponse.json(
@@ -45,6 +63,8 @@ export async function POST(request: NextRequest) {
   try {
     const authResult = await requireLeader(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const body = await request.json()
     const parsed = projectCreateSchema.safeParse(body)
@@ -65,9 +85,12 @@ export async function POST(request: NextRequest) {
     if (data.actualDelivery)
       data.actualDelivery = new Date(data.actualDelivery as string)
 
-    const project = await db.project.create({ data })
+    const project = await Project.create(data)
 
-    return NextResponse.json(project, { status: 201 })
+    return NextResponse.json(
+      { ...project.toObject(), id: project._id.toString() },
+      { status: 201 }
+    )
   } catch (error) {
     console.error('Create project error:', error)
     return NextResponse.json(

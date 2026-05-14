@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { TimeEntry } from '@/models/TimeEntry'
 import { requireAuth } from '@/lib/api-auth'
 
 export async function POST(request: NextRequest) {
   try {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null
@@ -27,7 +30,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Expected columns: date,projectId,macroId,collaboratorId,hours,isSupport,statusSnapshot,progressSnapshot,note
     const header = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''))
     const requiredColumns = ['date', 'projectId', 'collaboratorId', 'hours']
     const missingColumns = requiredColumns.filter(
@@ -81,21 +83,19 @@ export async function POST(request: NextRequest) {
           ? values[colIndex['note']] || null
           : null
 
-        const entry = await db.timeEntry.create({
-          data: {
-            date: new Date(dateStr),
-            projectId,
-            macroId,
-            collaboratorId,
-            hours,
-            isSupport,
-            statusSnapshot,
-            progressSnapshot,
-            note,
-          },
+        const entry = await TimeEntry.create({
+          date: new Date(dateStr),
+          projectId,
+          macroId,
+          collaboratorId,
+          hours,
+          isSupport,
+          statusSnapshot,
+          progressSnapshot,
+          note,
         })
 
-        created.push(entry)
+        created.push({ ...entry.toObject(), id: entry._id.toString() })
       } catch (err) {
         errors.push({
           row: i + 1,

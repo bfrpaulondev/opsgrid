@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Collaborator } from '@/models/Collaborator'
+import { TimeEntry } from '@/models/TimeEntry'
 import { requireAuth } from '@/lib/api-auth'
 import { calculateUtilization } from '@/lib/business-rules'
 import { impactPreviewSchema } from '@/lib/validations'
@@ -8,6 +10,8 @@ export async function POST(request: NextRequest) {
   try {
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
+
+    await connectDB()
 
     const body = await request.json()
     const parsed = impactPreviewSchema.safeParse(body)
@@ -26,9 +30,7 @@ export async function POST(request: NextRequest) {
     const monthStart = new Date(year, monthNum, 1)
     const monthEnd = new Date(year, monthNum + 1, 0, 23, 59, 59)
 
-    const collaborator = await db.collaborator.findUnique({
-      where: { id: collaboratorId },
-    })
+    const collaborator = await Collaborator.findById(collaboratorId)
 
     if (!collaborator) {
       return NextResponse.json(
@@ -38,15 +40,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Current hours for the month
-    const entries = await db.timeEntry.findMany({
-      where: {
-        collaboratorId,
-        date: { gte: monthStart, lte: monthEnd },
-      },
-      include: {
-        project: { select: { id: true, name: true, type: true } },
-      },
+    const entries = await TimeEntry.find({
+      collaboratorId,
+      date: { $gte: monthStart, $lte: monthEnd },
     })
+      .populate('project', 'id name type')
+      .lean()
 
     const currentHours = entries.reduce((sum, e) => sum + e.hours, 0)
     const capacity = collaborator.monthlyCapacityH
@@ -57,21 +56,24 @@ export async function POST(request: NextRequest) {
     // Current projects
     const currentProjects = [
       ...new Map(
-        entries.map((e) => [
-          e.projectId,
-          {
-            id: e.projectId,
-            name: e.project.name,
-            type: e.project.type,
-            hours: 0,
-          },
-        ])
+        entries.map((e) => {
+          const proj = e.project as any
+          return [
+            e.projectId.toString(),
+            {
+              id: e.projectId.toString(),
+              name: proj?.name || 'Unknown',
+              type: proj?.type || 'UNKNOWN',
+              hours: 0,
+            },
+          ]
+        })
       ).values(),
     ]
 
     // Sum hours per project
     for (const entry of entries) {
-      const proj = currentProjects.find((p) => p.id === entry.projectId)
+      const proj = currentProjects.find((p) => p.id === entry.projectId.toString())
       if (proj) proj.hours += entry.hours
     }
 

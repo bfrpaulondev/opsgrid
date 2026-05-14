@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { connectDB } from '@/lib/db'
+import { Collaborator } from '@/models/Collaborator'
+import { TimeEntry } from '@/models/TimeEntry'
 import { requireAuth } from '@/lib/api-auth'
 import { calculateUtilization } from '@/lib/business-rules'
 
@@ -11,11 +13,13 @@ export async function GET(
     const authResult = await requireAuth(request)
     if (!authResult.success) return authResult.response
 
+    await connectDB()
+
     const { id } = await params
     const { searchParams } = new URL(request.url)
     const year = parseInt(searchParams.get('year') || new Date().getFullYear().toString())
 
-    const collaborator = await db.collaborator.findUnique({ where: { id } })
+    const collaborator = await Collaborator.findById(id)
     if (!collaborator) {
       return NextResponse.json(
         { message: 'Collaborator not found' },
@@ -29,15 +33,10 @@ export async function GET(
     const startDate = new Date(year, 0, 1)
     const endDate = new Date(year, 11, 31, 23, 59, 59)
 
-    const entries = await db.timeEntry.findMany({
-      where: {
-        collaboratorId: id,
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    })
+    const entries = await TimeEntry.find({
+      collaboratorId: id,
+      date: { $gte: startDate, $lte: endDate },
+    }).lean()
 
     // Build monthly matrix
     const monthlyMatrix = []
