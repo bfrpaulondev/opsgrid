@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String        @id @default(cuid())
+  email          String        @unique
+  passwordHash   String
+  name           String
+  role           String        @default("COLLABORATOR") // LEADER or COLLABORATOR
+  collaboratorId String?       @unique
+  collaborator   Collaborator? @relation(fields: [collaboratorId], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Collaborator {
+  id               String              @id @default(cuid())
+  name             String
+  jobTitle         String?
+  monthlyCapacityH Int                 @default(160)
+  supportPct       Float               @default(0)
+  active           Boolean             @default(true)
+  user             User?
+  entries          TimeEntry[]
+  allocations      PlannedAllocation[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model Project {
+  id              String              @id @default(cuid())
+  name            String
+  client          String?
+  type            String              // PROJECT, MACRO, INCIDENT, REQUEST
+  priority        String              @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  status          String              @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, TRIAGE, BLOCKED, DONE
+  startDate       DateTime?
+  plannedDelivery DateTime?
+  actualDelivery  DateTime?
+  riskNotes       String?
+  macros          MacroActivity[]
+  entries         TimeEntry[]
+  allocations     PlannedAllocation[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+}
+
+model MacroActivity {
+  id              String     @id @default(cuid())
+  projectId       String
+  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  status          String     @default("NOT_STARTED")
+  progressPct     Float      @default(0)
+  plannedDelivery DateTime?
+  entries         TimeEntry[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model TimeEntry {
+  id               String        @id @default(cuid())
+  date             DateTime
+  projectId        String
+  project          Project       @relation(fields: [projectId], references: [id])
+  macroId          String?
+  macro            MacroActivity? @relation(fields: [macroId], references: [id])
+  collaboratorId   String
+  collaborator     Collaborator  @relation(fields: [collaboratorId], references: [id])
+  hours            Float
+  isSupport        Boolean       @default(false)
+  statusSnapshot   String
+  progressSnapshot Float?
+  note             String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model PlannedAllocation {
+  id             String       @id @default(cuid())
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id])
+  collaboratorId String
+  collaborator   Collaborator @relation(fields: [collaboratorId], references: [id])
+  month          String       // "YYYY-MM"
+  plannedHours   Float
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([projectId, collaboratorId, month])
+}
+
+model MonthlySnapshot {
+  id             String   @id @default(cuid())
+  month          String   // "YYYY-MM"
+  collaboratorId String
+  totalHours     Float
+  supportHours   Float
+  projectHours   Float
+  capacityH      Int
+  utilizationPct Float
+  createdAt      DateTime @default(now())
+
+  @@unique([month, collaboratorId])
+}
