@@ -24,6 +24,7 @@ import {
   ChevronUp,
   ChevronDown,
   FileSpreadsheet,
+  FileText,
   AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -381,14 +382,16 @@ export default function EntriesPage() {
     updateMutation.mutate({ id: selectedEntry.id, data: form })
   }
 
-  const handleExport = async () => {
+  const [exportFormat, setExportFormat] = useState<'csv' | 'xlsx'>('xlsx')
+
+  const handleExport = async (fmt: 'csv' | 'xlsx' = exportFormat) => {
     try {
       const params = new URLSearchParams()
       if (filterFrom) params.set('from', format(filterFrom, 'yyyy-MM-dd'))
       if (filterTo) params.set('to', format(filterTo, 'yyyy-MM-dd'))
       if (filterCollaborator && filterCollaborator !== 'all') params.set('collaboratorId', filterCollaborator)
       if (filterProject && filterProject !== 'all') params.set('projectId', filterProject)
-      params.set('format', 'csv')
+      params.set('format', fmt)
 
       const res = await fetch(`/api/entries/export?${params.toString()}`, {
         credentials: 'include',
@@ -398,12 +401,12 @@ export default function EntriesPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'lancamentos.csv'
+      a.download = `opsgrid_lancamentos.${fmt === 'xlsx' ? 'xlsx' : 'csv'}`
       a.click()
       URL.revokeObjectURL(url)
-      toast.success('Ficheiro CSV exportado')
+      toast.success(`Ficheiro ${fmt.toUpperCase()} exportado com sucesso`)
     } catch {
-      toast.error('Erro ao exportar CSV')
+      toast.error(`Erro ao exportar ${fmt.toUpperCase()}`)
     }
   }
 
@@ -833,15 +836,36 @@ export default function EntriesPage() {
               <Plus className="h-4 w-4" />
               Novo Lançamento
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 border-border"
-              onClick={handleExport}
-            >
-              <Download className="h-4 w-4" />
-              Exportar CSV
-            </Button>
+            <div className="flex items-center gap-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 border-border rounded-r-none"
+                onClick={() => handleExport(exportFormat)}
+              >
+                <Download className="h-4 w-4" />
+                Exportar {exportFormat.toUpperCase()}
+              </Button>
+              <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as 'csv' | 'xlsx')}>
+                <SelectTrigger className="h-8 w-[28px] border-l-0 rounded-l-none border-border p-0 justify-center">
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="xlsx">
+                    <span className="flex items-center gap-2">
+                      <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
+                      Excel (.xlsx)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="csv">
+                    <span className="flex items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 text-cyan-400" />
+                      CSV (.csv)
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button
               variant="outline"
               size="sm"
